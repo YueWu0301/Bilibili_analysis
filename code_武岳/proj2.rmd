@@ -1,0 +1,216 @@
+```{r}
+library(ggplot2)
+library(factoextra)
+library(cluster)
+library(dplyr)
+library(corrplot)
+library(randomForest) 
+library(gvlma)
+
+df<- read.csv("C:/Users/WuuYue/Desktop/R/Proj/bilibili_data.csv")
+rownames(df) <- df$mid
+```
+
+
+```{r}
+df1 <- df[c('follower','video' ,"master","album","article","channel","time_ave20","play_ave20","video_max_ratio")] 
+#  %>% sample_n(size = 8000)
+
+
+```
+
+```{r}
+normalized_data <- df1
+cols_to_normalize <-c('follower','video' ,"master","album","article","channel","time_ave20","play_ave20","video_max_ratio")
+normalized_data[cols_to_normalize] <- apply(df1[cols_to_normalize], 2, function(x) (x - min(x)) / (max(x) - min(x)))
+
+# 计算相关性矩阵
+cor_matrix <- cor(normalized_data[, c('follower','video' ,"master","album","article","channel","time_ave20","play_ave20","video_max_ratio")])
+
+# 绘制相关性矩阵图
+corrplot(cor_matrix, method = "circle")
+
+# 使用随机森林计算特征重要性
+rf_model <- randomForest(follower ~ ., data = normalized_data[, c('follower','video' ,"master","album","article","channel","time_ave20","play_ave20","video_max_ratio")])
+importance <- importance(rf_model)
+
+# 输出特征重要性排序
+print(importance)
+
+# 绘制特征重要性条形图
+varImpPlot(rf_model)
+```
+
+1. 我们在做影响分析时，不带上play_ave20
+```{r}
+data_without_playave <- normalized_data[, c('follower', 'video', 'master', 'album', 'article', 'channel', 'time_ave20', 'video_max_ratio')]
+
+# 使用随机森林计算特征重要性
+rf_model <- randomForest(follower ~ ., data = data_without_playave)
+importance <- importance(rf_model)
+
+# 输出特征重要性排序
+print(importance)
+
+# 绘制特征重要性条形图
+varImpPlot(rf_model)
+
+```
+2.进行一个线性模型，先去除这一部分后再进行分析
+
+```{r}
+lm_model <- lm(follower ~ play_ave20, data = normalized_data)
+
+# 获取回归模型的预测值
+predicted_play_ave <- predict(lm_model, normalized_data)
+
+# 从"follower"中减去回归模型的预测值，得到去除"play-ave20"影响后的新变量
+follower_adjusted <- normalized_data$follower - predicted_play_ave
+
+# 创建新的数据集，去除"play-ave20"变量，使用调整后的"follower"变量
+data_without_playave <- normalized_data[, c('video', 'master', 'album', 'article', 'channel', 'time_ave20', 'video_max_ratio')]
+data_without_playave$follower_adjusted <- follower_adjusted
+
+# 使用随机森林计算特征重要性
+rf_model <- randomForest(follower_adjusted ~ ., data = data_without_playave)
+importance <- importance(rf_model)
+
+# 输出特征重要性排序
+print(importance)
+
+# 绘制特征重要性条形图
+varImpPlot(rf_model)
+
+```
+
+对整个线性模型进行一些分析
+使用归一化数据
+```{r}
+lm_model <- lm(follower ~ play_ave20, data = normalized_data)
+
+# 预测值及置信区间
+predictions <- predict(lm_model, interval = "confidence")
+
+# 创建包含预测值和置信区间的数据集
+prediction_data <- data.frame(normalized_data$play_ave20, predictions)
+colnames(prediction_data) <- c("play_ave20", "follower", "lower", "upper")
+
+# 绘制散点图、回归线和置信区间
+ggplot(normalized_data, aes(x = play_ave20, y = follower)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  geom_ribbon(data = prediction_data, aes(ymin = lower, ymax = upper), fill = "blue", alpha = 0.2) +
+  labs(x = "play-ave20", y = "follower") +
+  theme_minimal() 
+
+```
+
+
+```{r}
+ggplot(normalized_data, aes(x = play_ave20, y = follower)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(x = "play-ave20", y = "follower") +
+  theme_minimal()+
+  xlim(0,0.05)
+```
+
+```{r}
+gvmodel <- gvlma(lm_model)
+summary(gvmodel)
+```
+
+```{r}
+# 计算残差
+residuals <- resid(lm_model)
+
+# 标识离群值
+outliers <- which(abs(residuals) > 0)  # 定义离群值的阈值为2，可以根据需要进行调整
+
+# 绘制散点图，离群值使用不同颜色标识
+ggplot(normalized_data, aes(x = play_ave20, y = follower)) +
+  geom_point(color = ifelse(row.names(normalized_data) %in% outliers, "red", "blue")) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(x = "play-ave20", y = "follower") +
+  theme_minimal()
+```
+
+```{r}
+top_overestimations <- head(order(residuals, decreasing = TRUE), 10)
+top_underestimations <- head(order(residuals), 10)
+
+
+
+```
+
+
+```{r}
+print(data[c(top_overestimations),])
+print(data[c(top_underestimations),])
+
+```
+
+
+```{r}
+residual1 <- residuals[residuals > 0]
+# 按倒序排列
+residual1 <- sort(residual1, decreasing = TRUE)
+residual1[1:10]
+```
+```{r}
+residual2 <- residuals[residuals < 0]
+# 按倒序排列
+residual2 <- sort(residual2, decreasing = FALSE)
+residual2[1:10]
+```
+
+
+
+
+
+
+使用非参数回归
+loess
+```{r}
+attach(normalized_data)
+plot(play_ave20,follower)
+tt1 <- loess(follower~play_ave20 , span=0.01,family="gaussian")
+points(tt1$x , fitted(tt1), col='red')
+tt1 <- loess(follower~play_ave20 , span=0.02,family="gaussian")
+points(tt1$x , fitted(tt1), col='blue')
+tt1 <- loess(follower~play_ave20 , span=0.03,family="gaussian")
+points(tt1$x , fitted(tt1), col='green')
+```
+
+NW
+```{r}
+attach(normalized_data)
+plot( play_ave20,follower)
+lines(ksmooth(play_ave20,follower,kernel="normal",bandwidth=0.2),col='green')
+lines(ksmooth(play_ave20,follower,kernel="normal",bandwidth=0.3),col='blue')
+lines(ksmooth(play_ave20,follower,kernel="normal",bandwidth=0.4),col='red')
+```
+```{r}
+attach(normalized_data)
+plot(play_ave20,follower)
+lines(ksmooth(play_ave20,follower,kernel="box",bandwidth=0.2),col='green')
+lines(ksmooth(play_ave20,follower,kernel="box",bandwidth=0.3),col='blue')
+lines(ksmooth(play_ave20,follower,kernel="box",bandwidth=0.4),col='red')
+```
+使用log尝试
+
+
+技术问题，归一化后做会有点问题~
+```{r}
+model = lm(follower~log(play_ave20+1))
+plot(play_ave20,follower)
+abline(model)
+plot(model)
+```
+
+```{r}
+
+
+```
+
+

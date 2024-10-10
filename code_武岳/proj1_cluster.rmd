@@ -1,0 +1,302 @@
+# r package
+```{r}
+library(ggplot2)
+library(factoextra)
+library(cluster)
+library(dplyr)
+df<- read.csv("C:/Users/WuuYue/Desktop/R/Proj/bilibili_data.csv")
+rownames(df) <- df$mid
+```
+
+
+```{r}
+df$time_tag <- df$time_tag <- ifelse(df$time_ave20 < 6.168419, "short",
+                      ifelse(df$time_ave20 <= 17.98943, "med", "long"))
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+## 观测数据
+```{r}
+df3 <- df[c("play_ave20","video","time_ave20","album","video_max_ratio","channel","follower")]
+
+
+```
+
+```{r}
+df3 <- scale(df3)
+
+```
+
+
+```{r}
+res<- get_clust_tendency(df3,n=40,graph=TRUE)
+res$hopkins_stat
+```
+
+# 此值越小越好,<0.5 -- 高度可聚合的
+```{r}
+res$plot
+```
+
+发现有一些值离群的大，这可能是导致他们分类效果一般的原因
+
+发现此代码运行时间过久过久
+
+```{r}
+set.seed(123)
+## Compute the gap statistic
+gap_stat <- clusGap(df2, FUN = kmeans, nstart = 25, K.max = 10, B = 500) 
+# Plot the result
+fviz_gap_stat(gap_stat)
+
+```
+
+似乎4是一个不错的聚类数量
+
+重复几次实验：每次取500个，多走几次试试
+```{r}
+df1 <- df[c('follower','video' ,"master","album","article","channel","time_ave20","play_ave20")]
+# seed 分别为10，20，30，40，50
+set.seed(50)
+df2<- df1 %>% sample_n(size = 500)
+```
+
+```{r}
+gap_stat <- clusGap(df2, FUN = kmeans, nstart = 25, K.max = 10, B = 500) 
+# Plot the result
+fviz_gap_stat(gap_stat)
+```
+
+```{r}
+gap_stat$Tab
+
+```
+
+```{r}
+fviz_nbclust(df2, kmeans, method = "wss", k.max = 10, nboot = 10)
+```
+
+决定使用k=4
+```{r}
+km.res <- kmeans(df2, 4, nstart = 25)
+fviz_cluster(km.res, data = df2)
+
+```
+
+
+```{r}
+km.res <- kmeans(df1, 4, nstart = 25)
+fviz_cluster(km.res, data = df1)
+
+```
+
+```{r}
+k=4
+km.res <- kmeans(df1, centers = 4)
+df_list <- split(df1, km.res$cluster)
+# 为各个数据框命名
+names(df_list) <- paste0("df_", 1:k)
+
+```
+
+
+
+
+```{r}
+# 假设 df_list 是包含 df_1 到 df_4 的数据框列表
+
+# 设置随机种子，确保可复现性
+set.seed(42)
+
+# 从每个数据框中随机抽取10个样本
+sample_size <- 10
+sample_list <- lapply(df_list, function(df) df[sample(nrow(df), sample_size), ])
+
+# 将抽样结果合并为一个矩阵
+merged_df <- do.call(rbind, sample_list)
+rownames(merged_df) <- seq_len(nrow(merged_df))
+
+# 对矩阵的每一列进行归一化
+normalized_df <- apply(merged_df, 2, function(col) (col - min(col)) / (max(col) - min(col)))
+
+# 绘制热力图
+#heatmap(normalized_df, col = colorRampPalette(c("blue", "white", "red"))(100), main = "Heatmap")
+gray_palette <- gray.colors(100)
+
+# 绘制热力图
+heatmap(normalized_df, col = gray_palette, main = "Heatmap")
+```
+
+
+------
+------
+------
+------
+先进行不同粉丝数量的划分，使用kmeans作用于单一的follower上
+
+```{r}
+#df_f <- df1[c("follower")]
+df_f1 <- df_f[c("log_follower")]
+fviz_nbclust(df_f1, kmeans, method = "wss", k.max = 10, nboot = 10)
+
+```
+```{r}
+k=3
+km.res <- kmeans(df_f, k, nstart = 25)
+cluster_max <- sapply(1:k, function(i) {
+  max(df_f[km.res$cluster == i, ])
+})
+
+cluster_min <- sapply(1:k, function(i) {
+  min(df_f[km.res$cluster == i, ])
+})
+
+# 打印结果
+for (i in 1:k) {
+  cat("Cluster", i, "最大值:", cluster_max[i], ", 最小值:", cluster_min[i], "\n")
+}
+```
+```{r}
+k=3
+km.res <- kmeans(df_f, centers = k)
+df_list <- split(df_f, km.res$cluster)
+# 为各个数据框命名
+names(df_list) <- paste0("df_", 1:k)
+
+```
+
+
+```{r}
+df_f$log_follower <- log(df_f$follower)
+
+ggplot(df_f, aes(x = log_follower)) +
+  geom_density(fill = "skyblue", color = "black") +
+  labs(x = "Follower Count", y = "Density") +
+  ggtitle("Non-Parametric Distribution of Follower Count")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---------------
+
+
+
+```{r}
+# 导入所需包
+library(cluster)
+library(factoextra)
+
+# 计算不同k值对应的SSE
+sse <- c()
+for (k in 1:10) {
+  kmeans_model <- kmeans(df3, centers = k)
+  sse[k] <- kmeans_model$tot.withinss
+}
+
+# 绘制SSE与k值的折线图
+plot(1:10, sse, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of clusters (k)", ylab = "Sum of Squared Errors (SSE)")
+
+# 使用肘点法确定最佳k值
+fviz_nbclust(df3, kmeans, method = "silhouette")
+
+```
+
+
+
+
+```{r}
+k <- 5
+km.res <- kmeans(df3, k, nstart = 25)
+
+
+plot_obj <- fviz_cluster(km.res, df3)  # 绘制聚类结果并获取绘图对象
+
+# 移除点的名称
+plot_obj$data$labels <- NULL
+
+# 重新绘制图形
+print(plot_obj)
+
+```
+
+
+
+```{r}
+
+kmedoids_result <- pam(df3, k = 5)
+
+```
+
+
+
+```{r}
+df4 <- data.frame(df3,cluster=kmedoids_result$clustering)
+write.csv(df4,"cluster_5.csv")
+
+
+```
+
+
+```{r}
+df4 <- read.csv("tsne_result_5.csv")
+
+# 绘制散点图
+ggplot(df4, aes(x = Dimension_1, y = Dimension_2, color = factor(cluster))) +
+  geom_point() +
+  labs(color = "Cluster")
+
+```
+
+
+```{r}
+ggplot(df4[df4["cluster"]<=4,], aes(x = follower, y =play_ave20 , color = factor(cluster))) +
+  geom_point() +
+  labs(color = "Cluster")+
+  lims(x=c(0,3),y=c(0,3))
+
+```
+```{r}
+l = 1
+ggplot(df4[df4["cluster"]<=4,], aes(x = video, y =video_max_ratio , color = factor(cluster))) +
+  geom_point() +
+  labs(color = "Cluster")+
+  lims(x=c(0,5),y=c(0,1))
+
+```
+
+
+
+
+```{r}
+grouped_df <- aggregate(. ~ cluster, data = df4, FUN = function(x) c(mean = mean(x), variance = var(x)))
+
+
+selected_cols <- grouped_df[, c("cluster"  ,       "play_ave20"   ,   "video"       ,    "time_ave20"   ,   "album"         ,"video_max_ratio", "channel" ,"follower")]
+write.csv(selected_cols,"cluster_re.csv")
+```
+
+
+

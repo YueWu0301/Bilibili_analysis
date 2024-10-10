@@ -1,0 +1,910 @@
+---
+title: "R final"
+author: "12111603 谭致恒"
+date: "2023-12-16"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    theme: spacelab
+ 
+---
+
+<style>
+body {
+  font-family: 'Times New Roman', sans-serif;
+  font-size: 24px;
+  color: black;
+  
+}
+</style>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 导入数据并检查NA
+```{r}
+
+data <- read.csv("C:/Users/Lenovo/Desktop/R -Datasets-2023/B站网红UP主是如何炼成的/bilibli_data.csv")
+
+table(is.na(data))
+# 发现数据没有NA，可放心做
+
+
+```
+
+## self_tags 转成01分类变量，并且将三个分类变量都factor
+```{r}
+
+# 考虑到self_tags出现了一个up主具备多个标签的情况不好分类，
+# 我们直接分成两类：有标签（1）和无标签（0）
+data$self_tags[data$self_tags != "[]"] <- 1
+data$self_tags[data$self_tags == "[]"] <- 0
+data$self_tags <- as.numeric(data$self_tags)
+
+# 将分类变量转为factor型变量
+data$sex <- factor(data$sex)
+data$self_tags <- factor(data$self_tags)
+data$video_tag_combine <- factor(data$video_tag_combine)
+
+```
+
+
+```{r}
+library(GGally)
+ggpairs(data[ ,1:10], mapping = aes(color = sex))
+
+```
+
+## attach(data)
+
+```{r}
+attach(data)
+
+```
+
+
+## BOX-COX 变换以及查看 log(follower) 的密度函数估计
+### BOX-COX
+
+```{r}
+library(MASS)
+library(fabletools)
+result <- boxcox(follower~.,data = data)
+abline(v = 0.1414)
+axis(3, at = 0.1414)
+
+result$x[which.max(result$y)]
+
+box <- box_cox(follower, lambda = 0.1414)
+```
+
+### log(follower) 密度函数估计
+
+这里是log(follower)的密度图像
+```{r}
+
+par(mfrow=c(1,1))
+n <- length(follower)
+s <- sd(log(follower))
+iqr <- IQR(log(follower))
+hstariqr <- 2.6*iqr*n^{-1/3}
+nobreaks2 <- (max(log(follower)-min(log(follower))))/hstariqr
+hist(log(follower),breaks=round(nobreaks2),probability=TRUE,col=0, ylim=c(0,.5),xlab="Margin width (mm)",ylab="Density")
+
+lines(density(log(follower),kernel="gaussian",bw=0.16),
+     main="C: Gaussian Kernel with h=0.12", col = "red")
+
+x <- seq(2,16, 0.1)
+y <- dnorm(x, mean = mean(log(follower)), sd = sd(log(follower)))
+lines(x,y, col = "blue")
+legend("topleft", legend = c("Kernel smoothing density","Gaussian density"), 
+       fill = c("red", "blue"),cex = 0.8)
+
+# 因此我们要把response variable y设置成log(follower)
+
+```
+
+log(follower) 接近正态
+
+### boxcox(follower, 0.1414)的密度函数估计
+
+```{r}
+summary(box)
+par(mfrow=c(1,1))
+n <- length(box)
+s <- sd(box)
+iqr <- IQR(box)
+hstariqr <- 2.6*iqr*n^{-1/3}
+nobreaks2 <- (max(box)-min(box))/hstariqr
+hist(box,breaks=round(nobreaks2),probability=TRUE,col=0,xlab="Margin width (mm)",ylab="Density", ylim = c(0,0.1))
+
+lines(density(box,kernel="gaussian",bw=0.16),
+     main="C: Gaussian Kernel with h=0.12", col = "red")
+
+x <- seq(3,59, 0.1)
+y <- dnorm(x, mean = mean(box), sd = sd(box))
+lines(x,y, col = "blue")
+legend("topleft", legend = c("Kernel smoothing density","Gaussian density"), 
+       fill = c("red", "blue"),cex = 0.8)
+
+```
+
+
+## ANOVA
+### 关于 video_tag_combine 的 one-way anova
+```{r, warning=FALSE}
+table(video_tag_combine)
+aggregate(log(follower), by=list(video_tag_combine),FUN=mean)
+aggregate(log(follower), by=list(video_tag_combine),FUN=sd)
+
+library(car)
+library(gplots)
+qqPlot(lm(log(follower) ~ video_tag_combine, data = data),simulate=TRUE,main="Q-Q PLOT",labels=FALSE)
+bartlett.test(log(follower)~video_tag_combine,data=data) 
+# p-value < 0.05, 方差不齐
+# log后满足正态
+# 综上，可换用 Welch one-way anova
+
+result_tag <- oneway.test(log(follower)~video_tag_combine, data = data, var.equal = FALSE)
+result_tag
+# p-value < 0.05, 认为有显著影响
+
+plotmeans(log(follower)~video_tag_combine)
+plotmeans(follower~video_tag_combine)
+## 这俩到底应该用哪一个呢？
+################################################
+
+
+fit <- aov(log(follower) ~ video_tag_combine)
+summary(fit)
+
+TukeyHSD(fit) ## multiple comparisons of means
+
+library(multcomp)
+par(las=1)
+par(mar=c(4,10,2,4))
+plot(TukeyHSD(fit)
+     ,col = c("black","red", "blue"))
+
+par(mar=c(5,4,6,2))
+tuk=glht(fit,linfct=mcp(video_tag_combine="Tukey"))
+plot(cld(tuk,level=0.05),col="lightgrey")
+
+
+#################################################
+qqPlot(lm(follower~video_tag_combine, data =data), simulate = TRUE, main="Q-Q PLOT",labels=FALSE )
+# 非正态
+library(lmPerm)
+set.seed(123)
+fit <- aovp(follower~ video_tag_combine, data = data, perm = "prob")
+summary(fit)
+
+plotmeans(follower~video_tag_combine)
+
+
+```
+
+### 关于 sex 的 one-way anova
+```{r}
+table(sex)
+aggregate(log(follower), by=list(sex),FUN=mean)
+aggregate(log(follower), by=list(sex),FUN=sd)
+
+qqPlot(lm(log(follower) ~ sex, data = data),simulate=TRUE,main="Q-Q PLOT",labels=FALSE)
+bartlett.test(log(follower)~sex,data=data) 
+# p-value < 0.05, 方差不齐
+# log后满足正态
+# 综上，可换用 Welch one-way anova
+
+result_sex <- oneway.test(log(follower)~sex, data = data, var.equal = FALSE)
+result_sex
+# p-value < 0.05, 认为有显著影响
+
+plotmeans(log(follower)~sex)
+plotmeans(follower~sex)
+## 这俩到底应该用哪一个呢？
+
+#######################################
+
+
+fit <- aov(log(follower) ~ sex)
+summary(fit)
+
+TukeyHSD(fit) ## multiple comparisons of means
+
+library(multcomp)
+par(las=2)
+par(mar=c(5,8,4,2))
+plot(TukeyHSD(fit), col = c("black", "red", "blue"))
+
+par(mar=c(5,4,6,2))
+tuk=glht(fit,linfct=mcp(sex="Tukey"))
+plot(cld(tuk,level=0.05),col="lightgrey")
+
+
+#######################################################
+
+set.seed(123)
+fit <- aovp(follower~ sex, data = data, perm = "prob")
+summary(fit)
+
+plotmeans(follower~sex)
+
+
+```
+
+
+
+### 关于 self_tags 的 one-way anova
+```{r}
+table(self_tags)
+aggregate(log(follower), by=list(self_tags),FUN=mean)
+aggregate(log(follower), by=list(self_tags),FUN=sd)
+
+
+qqPlot(lm(log(follower) ~ self_tags, data = data),simulate=TRUE,main="Q-Q PLOT",labels=FALSE)
+bartlett.test(log(follower)~self_tags,data=data) 
+# p-value < 0.05, 方差不齐
+# log后满足正态
+# 综上，可换用 Welch one-way anova
+
+result_self <- oneway.test(log(follower)~self_tags, data = data, var.equal = FALSE)
+result_self
+# p-value < 0.05, 认为有显著影响
+
+plotmeans(log(follower)~self_tags)
+plotmeans(follower~self_tags)
+## 这俩到底应该用哪一个呢？
+#######################################################
+
+fit <- aov(log(follower) ~ self_tags)
+summary(fit)
+
+TukeyHSD(fit) ## multiple comparisons of means
+
+library(multcomp)
+par(las=1)
+par(mar=c(4,10,2,4))
+plot(TukeyHSD(fit)
+     ,col = c("black","red", "blue"))
+
+par(mar=c(5,4,6,2))
+tuk=glht(fit,linfct=mcp(self_tags ="Tukey"))
+plot(cld(tuk,level=0.05),col="lightgrey")
+
+
+
+######################################################
+set.seed(123)
+fit <- aovp(follower~ self_tags, data = data, perm = "prob")
+summary(fit)
+
+plotmeans(follower~self_tags)
+
+# 说明有自己的标签会增加followers数量
+```
+
+
+## interaction2wt  查看两个分类变量之间是否有interaction
+
+```{r}
+library(HH)
+interaction2wt(log(follower)~sex * video_tag_combine)
+```
+
+sex 和 video_tag_combine 有interaction
+
+```{r}
+interaction2wt(log(follower)~self_tags * video_tag_combine)
+
+```
+
+对角线图上面的线基本平行，说明video_tag_combine 和self_tags基本没有interaction
+
+```{r}
+interaction2wt(log(follower)~sex * self_tags)
+
+```
+
+
+对角线图上面的线基本平行，说明sex和self_tags基本没有interaction
+
+## ANCOVA
+```{r}
+library(HH)
+
+
+ancova(log(follower) ~ sex*time_ave20, data = data)
+
+ancova(log(follower) ~ sex*play_ave20, data = data)
+```
+
+斜率基本一致，说明sex和time_ave20之间基本没有interaction
+
+```{r}
+ancova(log(follower) ~ self_tags*time_ave20, data = data)
+```
+
+斜率完全一致，说明self_tags 和 time_ave20 之间没有interaction
+
+
+```{r}
+ancova(log(follower) ~ video_tag_combine*time_ave20, data = data)
+```
+
+斜率乱七八糟，说明 video_tag_combine 和 time_ave20 之间有interaction
+
+
+```{r}
+ancova(log(follower) ~ sex*play_ave20, data = data)
+```
+
+斜率基本一致，说明 sex 和 play_ave20 之间基本没有interaction
+
+```{r}
+ancova(log(follower) ~ self_tags*play_ave20, data = data)
+```
+
+斜率基本一致，说明 self_tags 和 play_ave20 之间基本没有interaction
+
+```{r}
+ancova(log(follower) ~ video_tag_combine*play_ave20, data = data)
+
+```
+
+
+斜率基本一致，说明 video_tag_combine 和 play_ave20 之间基本没有interaction
+
+
+## Two away ANOVA
+```{r}
+aggregate(log(follower),by=list(sex,video_tag_combine),FUN=mean)
+aggregate(log(follower),by=list(sex,video_tag_combine),FUN=sd)
+
+
+library(gplots)
+plotmeans(log(follower)~interaction(sex,video_tag_combine, sep=" "), connect=list(c(1,4,7,10,13,16,19,22,25,28,31),c(2,5,8,11,14,17,20,23,26,29,32),c(3,6,9,12,15,18,21,24,27,30,33)),col=c("red","#ffcc33","#00cc00"),main="Interaction Plot with 95% CIs", xlab="sex and video_tag_combine", lwd = c(5,5,5))
+legend("topright", legend = c("保密","男","女"),fill = c("red","#FFcc33","#00cc00"))
+
+
+```
+
+
+
+## 画图
+
+### 可视化 sex 和 video_tag_combine 之间的interaction
+
+```{r}
+
+library(ggplot2)
+ggplot(data,
+       aes(video_tag_combine,follower, fill = sex))+
+  geom_bar(stat = 'identity',position = 'dodge')
+```
+
+
+```{r}
+
+library(data.table)
+copy  <- copy(data)
+copy$s_v <- paste(copy$sex,data$video_tag_combine,sep='_')
+```
+
+
+```{r}
+library(stringr)
+average <- aggregate(follower ~ s_v, data = copy, FUN = mean)
+average$sex <- substr(average$s_v,1,2)
+average$video_tag_combine <-  str_extract(average$s_v, "(?<=_).*")
+
+
+
+list <- c("保密","男_","女_")
+
+average$sex <- factor(average$sex,levels = list)
+
+#使各肿瘤类型按照value值排列：
+average <- average[order(average$sex,average$follower),]
+
+
+#再确定各肿瘤类型的levels：
+list2 <- average$s_v
+average$s_v <- factor(average$s_v,levels = unique(list2))
+
+
+ggplot(average,
+       aes(s_v, follower, fill = sex))+
+  geom_bar(stat = 'identity')
+
+```
+
+
+
+```{r}
+
+ ggplot(average,
+       aes(s_v, follower, fill = sex))+
+  geom_bar(stat = 'identity',alpha=1)+
+  coord_polar(start = 11.5)+
+  theme_bw()+
+  theme(
+        #legend.position = 'none',
+        panel.border = element_blank(),
+        
+  panel.grid = element_line(colour = 'grey70'))
+
+  scale_y_continuous(limits = c(-100,115),breaks = seq(0,100,25))
+
+
+
+```
+
+
+### 相关系数及相关系数显著性的热力图
+
+
+```{r}
+library(ggcorrplot)
+input <- data[,-c(1,3,18,19)]
+
+cor <- round(cor(input), 3)
+p <- cor_pmat(input)
+ggcorrplot(cor,hc.order = T,  #分等级聚类重排矩阵
+           ggtheme = ggplot2::theme_void(base_size = 15), #主题修改
+           colors = c("CornflowerBlue","white","Salmon"), #自定义颜色，看自己喜欢，或是参考好看的文献Figure用法。
+           lab = T,lab_size = 2,   #相关系数文本字体大小
+           tl.cex = 15,            #坐标轴字体大小
+           p.mat = p,        #添加显著性信息
+           sig.level = 0.05,       #显著性水平
+           pch = 4,                #不够显著的色块进行标记，pch表示选择不同的标记方法，可以尝试其他数字表示什么标记方法
+           pch.cex = 8)     
+
+
+```
+
+
+```{r}
+
+library(corrgram)
+corrgram(data[, -c(1,3,18,19)], 
+         order=TRUE, 
+         lower.panel=panel.shade, 
+         upper.panel=panel.pie, 
+         text.panel=panel.txt, 
+         main="PCA-based reorder")
+```
+
+### 小提琴图+箱线图 (关于 video_tag_combine 分类)
+
+```{r}
+ggplot(data,aes(video_tag_combine,log(follower)))+
+  geom_violin(aes(fill=video_tag_combine),cex=1.2)+
+
+
+  geom_boxplot(width=0.1,cex=1.2)
+
+```
+
+### 小提琴图+箱线图（关于sex 分类）
+
+```{r}
+ggplot(data,aes(sex,log(follower)))+
+  geom_violin(aes(fill= sex),cex=1.2)+
+
+
+  geom_boxplot(width=0.1,cex=1.2)
+
+```
+
+## 查看大中小V之间到底差在哪里
+
+### 根据follower分大中小V
+```{r}
+
+data$class[data$follower > 1000000] <- "大"
+data$class[data$follower > 100000 & data$follower < 1000000] <- "中"
+data$class[data$follower < 100000] <- "小"
+table(data$class)
+data$class <- factor(data$class, levels = c("大","中","小"))
+
+
+```
+
+
+### 把数据先进性boxcox变成正态然后scale标准化
+```{r}
+
+library(MASS)
+library(fabletools)
+
+auto.boxcox <- function(x) {
+  result <- boxcox(x~., data = data, plotit = FALSE)
+  box <- box_cox(x, lambda =  result$x[which.max(result$y)])
+  return(box)
+}
+
+data1 <- data[, -c(1,3,18,19)]
+data1[data1 == 0] <- 0.001 
+data3 <- as.data.frame(apply(data1[,1:16], 2, auto.boxcox)) #每一列都做boxcox
+data3 <- as.data.frame(apply(data3, 2, scale)) #每一列都scale
+data3$class <- data1$class
+
+
+```
+
+
+### 直方图查看大中小V之间的区别
+
+（data2是没做boxcox的，data3是做完boxcox的，要用谁自己改下面的代码，一共需改两处）
+
+```{r}
+
+# 加载 ggplot2 包
+library(ggplot2)
+
+maxmin <- function(vec){
+  result <- (vec - min(vec))/(max(vec)- min(vec))
+  return(result)
+}
+
+
+
+data1 <- data[, -c(1,3,18,19)]
+data2 <- as.data.frame(apply(data1[,1:16], 2, scale))
+data2$class <- data1$class
+
+# 融合数据
+df_long <- tidyr::gather(data3, key = "variable", value = "value", -class)
+
+# 计算每个类别下变量的均值
+mean_values <- aggregate(value ~ class + variable, data = df_long, FUN = mean)
+
+# 绘制均值柱状图
+ggplot(mean_values, aes(x = class, y = value, fill = variable), ylim = c(-1,2)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), color = "black") +
+  labs(title = "Mean Bar Plot by Class", x = "Class", y = "Mean Value") 
+ 
+
+```
+
+这里我们看到影响大中小v的主要因素是follower 和 play_ave20，由于大中小v本身就是根据follower进行定义的，而且follower和 play_ave20的相关性很大，所以我们把这两个变量踢出，再看是哪些因素影响的。
+
+```{r}
+
+# 融合数据
+df_long <- tidyr::gather(data3[ ,-c(1,8)], key = "variable", value = "value", -class)
+
+# 计算每个类别下变量的均值
+mean_values <- aggregate(value ~ class + variable, data = df_long, FUN = mean)
+
+# 绘制均值柱状图
+ggplot(mean_values, aes(x = class, y = value, fill = variable)) +
+   
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), color = "black") +
+  labs(title = "Mean Bar Plot by Class", x = "Class", y = "Mean Value") 
+ 
+
+```
+
+
+
+
+
+```{r}
+
+library(data.table)
+copy  <- copy(mean_values)
+copy$c_v <- paste(copy$class,copy$variable,sep='_')
+```
+
+
+
+
+```{r}
+
+ ggplot(copy,
+       aes(c_v, value, fill = variable))+
+  geom_bar(stat = 'identity',alpha=1)+
+  coord_polar(start = 11.5)+
+  theme_bw()+
+  theme(
+        #legend.position = 'none',
+        panel.border = element_blank(),
+        
+  panel.grid = element_line(colour = 'grey70'))
+
+  scale_y_continuous(limits = c(-100,115),breaks = seq(0,100,25))
+
+
+
+```
+
+```{r}
+ggplot(copy,
+       aes(variable,value, fill = class))+
+  geom_bar(stat = 'identity',position = 'dodge')
+
+```
+
+
+## DCSIS 选择几个媒体最重要的
+
+```{r, warning= FALSE}
+library(MFSIS)
+x <- as.matrix(data[,11:17])
+DCSIS_result <- DCSIS(x, log(follower), nsis = 7)
+
+colnames(x[ ,DCSIS_result])
+
+```
+
+## PCA几个媒体
+```{r}
+pca_result <- prcomp(data[ ,11:17], scale = TRUE)
+biplot(pca_result)
+
+
+cor(log(follower), pca_result$x[ ,1])
+```
+
+
+## Elastic net 选媒体
+
+```{r}
+library(glmnet)
+lasso.fit <- glmnet(data[,11:17], log(follower), alpha = 0.8)
+plot(lasso.fit, xvar = "lambda", label = TRUE)
+abline( h = 0, lty = 2)
+
+
+```
+
+
+## 中 到 大
+
+```{r}
+
+middle <- data[data$class == "中", ]
+large <- data[data$class == "大", ]
+x <- data.frame(rbind(middle,large))
+x$class2 <- 0
+x$class2[x$class == "大"] <- 1
+```
+
+
+### DCSIS
+```{r}
+library(MFSIS)
+DCSIS_result <- DCSIS(as.matrix(x[ ,-c(1,2,3,18,19,21,22)]), x$class2, nsis = 7)
+
+colnames(x[ ,-c(1,2,3,18,19,21,22)][ ,DCSIS_result])
+
+```
+
+### Elastic net
+```{r}
+library(glmnet)
+lasso.fit <- glmnet(x[ ,-c(1,2,3,18,19,21,22)], x$class2, alpha = 0.9)
+plot(lasso.fit, xvar = "lambda", label = TRUE)
+abline( h = 0, lty = 2)
+
+colnames(x[ ,-c(1,2,3,18,19,21)])
+
+``` 
+
+
+
+weibo, mail, album, wx, master, video_max_ratio
+
+
+
+
+
+
+
+```{r}
+
+library(party)
+c.tree <- ctree(class ~ weibo + mail + album + wx + master + video_max_ratio, data  = x)
+plot(c.tree)
+```
+
+
+
+
+
+## 小 到 中
+
+```{r}
+
+middle <- data[data$class == "中", ]
+small <- data[data$class == "小", ]
+set.seed(123)
+index <- sample(nrow(small),nrow(middle))
+x <- data.frame(rbind(middle,small))
+x$class2 <- 0
+x$class2[x$class == "中"] <- 1
+```
+
+
+### DCSIS
+```{r}
+library(MFSIS)
+DCSIS_result <- DCSIS(as.matrix(x[ ,-c(1,2,3,18,19,21,22)]), x$class2, nsis = 7)
+
+colnames(x[ ,-c(1,2,3,18,19,21,22)][ ,DCSIS_result])
+
+```
+
+### Elastic net
+```{r}
+library(glmnet)
+lasso.fit <- glmnet(x[ ,-c(1,2,3,18,19,21,22)], x$class2, alpha = 0.9)
+plot(lasso.fit, xvar = "lambda", label = TRUE)
+abline( h = 0, lty = 2)
+
+colnames(x[ ,-c(1,2,3,18,19,21)])
+
+``` 
+
+
+
+```{r}
+
+x$class2 <- factor(x$class2, levels = c(1,0),labels = c("中","小"))
+library(party)
+c.tree <- ctree(class2 ~ weibo + wx + master + video, data  = x)
+plot(c.tree)
+```
+
+
+
+
+```{r, warning=FALSE}
+# DCSIS
+
+library(MFSIS)
+DCSIS_result <- DCSIS(as.matrix(data[,-c(2,3,18,19)]), log(follower), nsis = 6)
+colnames(data[,-c(2,3,18,19)][ ,DCSIS_result])
+
+
+```
+
+```{r}
+library(glmnet)
+fit <- glmnet(data[,-c(2,3,18,19)], log(follower), alpha = 0.8)
+plot(fit, xvar = "lambda", label = TRUE)
+abline( h = 0, lty = 2)
+
+colnames(data[ ,-c(2,3,18,19)])
+```
+
+
+
+```{r}
+# random forest based on classical decision tree
+library(randomForest)
+set.seed(1234)
+rf_model <- randomForest(log(follower) ~ ., data = data[,-c(2,3,18,19)])
+importance <- importance(rf_model)
+importance
+
+varImpPlot(rf_model,sort = TRUE, main = "importance of variables in the model")
+```
+
+```{r}
+# random forest based on conditional inference tree
+library(party)
+cf_model <- cforest_unbiased(log(follower) ~ ., data = data[,-c(2,3,18,19)])
+
+varImpPlot(cf_model,sort = TRUE, main = "importance of variables in the model")
+```
+
+
+```{r}
+library(SIS)
+set.seed(1234)
+SIS_result <- SIS(as.matrix(data[,-c(2,3,18,19)]),log(data$follower), family = "gaussian", penalty = "SCAD", tune = "cv",  nsis = 6)
+
+
+colnames(data[,-c(2,3,18,19)][ ,SIS_result$ix])
+
+```
+
+
+
+```{r}
+
+choose.bandwidth <- function(predicted.variable, response.variable, lower.bound, upper.bound){
+# 假设你有一个数据框 df，其中包含了 x 和 y 两个变量
+# 你想使用 ksmooth 进行核密度估计或 Nadaraya-Watson 核回归
+
+library(MASS)
+
+# 设置交叉验证的折数（这里设置为5折交叉验证）
+k_folds <- 5
+
+# 创建一个用于交叉验证的函数
+cv_function <- function(h, x, y, folds) {
+  set.seed(123)  # 设置随机种子以确保可重复性
+  indices <- sample(1:folds, length(x), replace = TRUE)  # 随机将数据分为 k 折
+  
+  mse <- numeric(folds)  # 存储每次交叉验证的均方误差
+  
+  for (i in 1:folds) {
+    test_indices <- which(indices == i)  # 当前折的测试集索引
+    train_indices <- setdiff(1:length(x), test_indices)  # 当前折的训练集索引
+    
+    # 在训练集上拟合模型
+    fit <- ksmooth(x[train_indices], y[train_indices], kernel = "normal", bandwidth = h)
+    
+    
+    predictions <- rep(0,length(test_indices))
+    for( j in 1:length(test_indices)){
+      index <- which.min(abs(fit$x - x[test_indices[j]]))
+      predictions[j] <- fit$y[index]
+    }
+   
+    
+    # 计算均方误差
+    mse[i] <- mean((predictions - y[test_indices])^2)
+  }
+  
+  # 返回交叉验证的均方误差的平均值
+  return(mean(mse))
+}
+
+# 设置一系列窗宽的候选值
+bandwidths <- seq(lower.bound, upper.bound, by = (upper.bound-lower.bound)/10)
+
+# 对每个窗宽进行交叉验证
+cv_results <- sapply(bandwidths, function(h) cv_function(h, predicted.variable, response.variable, k_folds))
+
+# 选择具有最小均方误差的窗宽
+best_bandwidth <- bandwidths[which.min(cv_results)]
+
+# 输出最佳窗宽
+cat("Best bandwidth:", best_bandwidth, "\n")
+# 可以绘制交叉验证结果以帮助选择最佳窗宽
+plot(bandwidths, cv_results, type = "l", xlab = "Bandwidth", ylab = "Cross-Validation MSE")
+abline(v = best_bandwidth)
+axis(3, at = best_bandwidth)
+
+}
+
+```
+
+
+
+```{r}
+choose.bandwidth(log(data$play_ave20), log(data$follower), 0, 1)
+
+```
+
+
+```{r}
+plot(log(data$play_ave20), log(data$follower), col = "lightblue", xlab = "log(play_ave20)", ylab = "log(follower)", main = "The exponential relationship between log(follower) and play_ave20")
+lines(ksmooth(log(data$play_ave20), log(data$follower),kernel = "normal", bandwidth = 0.7), col = "blue", lwd = 3)
+abline(3.8,0.71, col = "red", lwd = 3, lty = 2)
+legend("bottomright", legend = c("NW kernel regression"," y = 3.8 + 0.71x"), fill = c("blue","red"))
+
+```
+
+
+
+
+```{r}
+plot(data$video, log(data$follower), col = "lightblue", xlab = "log(play_ave20)", ylab = "log(follower)", main = "The exponential relationship between log(follower) and play_ave20")
+
+
+#lines(ksmooth(data$video, log(data$follower),kernel = "normal", bandwidth = 20), col = "blue", lwd = 3)
+#abline(3.8,0.71, col = "red", lwd = 3, lty = 2)
+#legend("bottomright", legend = c("NW kernel regression"," y = 3.8 + 0.71x"), fill = c("blue","red"))
+
+
+```

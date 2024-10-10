@@ -1,0 +1,178 @@
+```{r}
+library(ggplot2)
+library(factoextra)
+library(cluster)
+library(dplyr)
+library(corrplot)
+library(randomForest) 
+library(gvlma)
+
+df<- read.csv("C:/Users/WuuYue/Desktop/R/Proj/bilibili_data.csv")
+rownames(df) <- df$mid
+df$video_tag_combine <- factor(df$video_tag_combine)
+
+```
+
+
+
+```{r}
+#df1 <- df[c('follower','video' ,"master","album","article","channel","time_ave20","play_ave20","video_max_ratio")] 
+#normalized_data <- df1
+#cols_to_normalize <-c('follower','video' ,"master","album","article","channel","time_ave20","play_ave20","video_max_ratio")
+#normalized_data[cols_to_normalize] <- apply(df1[cols_to_normalize], 2, function(x) (x - min(x)) / (max(x) - min(x)))
+
+
+```
+
+```{r}
+attach(df)
+lm_model <- lm(follower ~ play_ave20, data = df)
+df$predicted <- predict(lm_model)
+df$residuals <- resid(lm_model)
+```
+
+
+```{r}
+plot(play_ave20 , follower)
+abline(lm_model)
+
+```
+```{r}
+
+
+```
+
+
+根据增加的比来进行区分
+```{r}
+df$change <- df$residuals/df$follower
+df_pos <- df[df$change>0, ]
+#df_pos <- df_pos[order(df_pos$change,decreasing = TRUE),]
+
+df_neg <- df[df$change<0, ]
+#df_neg <- df_pos[order(df_neg$change),]
+
+
+```
+
+# 先按照百分比，各个选出前500个
+```{r}
+df_pos_sorted <- df_pos[order(-df_pos$change), ]
+df_pos <- df_pos_sorted[1:500, ]
+
+df_neg_sorted <- df_neg[order(df_neg$change), ]
+df_neg <- df_neg_sorted[1:500, ]
+```
+
+# 根据绝对值进行区分,各个选出500个
+```{r}
+df_pos_sorted <- df_pos[order(-df_pos$residuals), ]
+df_pos <- df_pos_sorted[1:500, ]
+df_neg_sorted <- df_neg[order(df_neg$residuals), ]
+df_neg <- df_neg_sorted[1:500, ]
+```
+---
+---
+---
+
+```{r}
+df <- df[df["sex"]=="男",]
+attach(df)
+lm_model <- lm(follower ~ play_ave20, data = df)
+df$predicted <- predict(lm_model)
+df$residuals <- resid(lm_model)
+df$change <- df$residuals/df$follower
+df_pos <- df[df$change>0, ]
+#df_pos <- df_pos[order(df_pos$change,decreasing = TRUE),]
+
+df_neg <- df[df$change<0, ]
+```
+
+
+```{r}
+x1 <- table(df$video_tag_combine)
+df_tag_count <-data.frame(tag=names(x1) , all_count=x1)
+x2 <- table(df_pos$video_tag_combine)
+x3 <- table(df_neg$video_tag_combine)
+
+df_tag_count<-cbind(df_tag_count , x2)
+df_tag_count<-cbind(df_tag_count , x3)
+
+```
+
+```{r}
+colnames(df_tag_count) <- c("tag","tag1","all_count","tag2","pos_count","tag3","neg_count")
+df_tag <- df_tag_count[c("tag","all_count","pos_count","neg_count")]
+
+```
+```{r}
+df_tag$percent = df_tag$all_count/sum(df_tag$all_count)
+df_tag$pos_percent = df_tag$pos_count/sum(df_tag$pos_count)
+df_tag$neg_percent = df_tag$neg_count/sum(df_tag$neg_count)
+df_tag$all <- "all"
+df_tag$pos <- "pos"
+df_tag$neg <- "neg"
+
+```
+
+```{r}
+df_all <- df_tag[c("tag","percent","all")]
+df_pos <- df_tag[c("tag","pos_percent","pos")]
+colnames(df_pos) <- c("tag","percent","all")
+df_neg <- df_tag[c("tag","neg_percent","neg")]
+colnames(df_neg) <- c("tag","percent","all")
+df_long <- rbind(df_all,df_pos,df_neg)
+```
+
+```{r}
+library(ggplot2)
+
+library(ggplot2)
+
+# 调整数据框
+df_tag_long <- tidyr::pivot_longer(df_tag, cols = c(percent, pos_percent, neg_percent), names_to = "Type", values_to = "Value")
+
+# 创建柱状图
+p <- ggplot(df_tag_long, aes(x = tag, y = Value, fill = Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c("percent" = "#339999", "pos_percent" = "#CCFFCC", "neg_percent" = "#333333"),labels = c("高估", "全部", "低估")) +
+  ylab("Percentage") +
+  xlab("")
+  theme_minimal()+
+  labs(fill = "Percent Type")
+
+# 显示柱状图
+print(p)
+
+```
+
+高估系数
+
+```{r}
+df_tag$pos_all <- df_tag$pos_percent-df_tag$percent
+df_tag$pos_improve <- df_tag$pos_all/df_tag$percent
+
+```
+```{r}
+library(ggplot2)
+
+# 对 tag 变量重新排序
+df_tag$tag <- reorder(df_tag$tag, -df_tag$pos_improve)
+
+# 创建柱状图，指定颜色
+p <- ggplot(df_tag, aes(tag, pos_improve)) +
+  geom_col(fill = "#339999") +
+  geom_text(aes(label = round(pos_improve,2)), vjust = -0.5) +  # 添加柱子顶部的高度数字
+  xlab("") +
+  ylab("Index") +
+  theme_minimal()
+
+# 显示柱状图
+print(p)
+
+```
+
+
+
+
+

@@ -1,0 +1,261 @@
+研究时尚，生活类up主
+```{r}
+library(ggplot2)
+library(factoextra)
+library(cluster)
+library(dplyr)
+library(corrplot)
+library(randomForest) 
+library(gvlma)
+library(plyr)
+library(multcomp)
+library(car)
+library(ggplot2)
+library(grid)
+library(RColorBrewer)
+library(dplyr)
+library(SuppDists) #提供rJohnson()函数
+df<- read.csv("C:/Users/WuuYue/Desktop/R/Proj/data_withr.csv")
+rownames(df) <- df$mid
+df$video_tag_combine <- factor(df$video_tag_combine)
+df$sex <- factor(df$sex)
+df <- df[order(df$follower,decreasing = TRUE), ]
+
+#df <- df[df["sex"]!="保密",]
+```
+
+# 小提琴图
+```{r}
+ggplot(df, aes(video_tag_combine,log(follower)))+ 
+  geom_violin(aes(fill = video_tag_combine),trim = FALSE)+
+  geom_boxplot(width = 0.2)+
+  theme_classic()+
+  labs(x='分区',y='log(粉丝数)')+
+  theme(panel.background=element_rect(fill="white",colour="black",size=0.25),
+        axis.line=element_line(colour="black",size=0.25),
+        axis.title=element_text(size=13,face="plain",color="black"),
+        axis.text = element_text(size=12,face="plain",color="black"),
+        legend.position="none"
+  )
+
+```
+
+# 分析不同的tag是否会对follower有显著的影响
+```{r}
+attach(df)
+fit = aov(follower~video_tag_combine)
+summary(fit)
+plot(TukeyHSD(fit))
+re = TukeyHSD(fit)
+re1 <- data.frame(re[["video_tag_combine"]])
+re_sig <- re1[re1$lwr*re1$upr>0 , ]
+re_sig$tag <- rownames(re_sig)
+re_sig <- re_sig[order(re_sig$diff,decreasing = TRUE), ]
+attach(re_sig)
+ggplot(re_sig) +
+  geom_segment(aes(x = lwr, xend = upr, y = tag, yend = tag), color = "black") +
+  geom_point(aes(x = diff, y = tag), color = "black", size = 3) +
+  labs(x = "difference", y = "Tag",title="differnce")
+```
+### 合适的变换后做图显示
+```{r}
+
+df$follower <- log(df$follower)
+attach(df)
+fit = aov(follower~video_tag_combine)
+TukeyHSD(fit)
+tuk <- glht(fit,linfct = mcp(video_tag_combine="Tukey"))
+plot(cld(tuk,level=0.5), col="lightgrey")
+
+
+```
+
+# 只看男性
+```{r}
+df_male <- df[df["sex"]=="男",]
+attach(df_male)
+fit = aov(follower~video_tag_combine)
+summary(fit)
+plot(TukeyHSD(fit))
+re = TukeyHSD(fit)
+re1 <- data.frame(re[["video_tag_combine"]])
+re_sig <- re1[re1$lwr*re1$upr>0 , ]
+re_sig$tag <- rownames(re_sig)
+re_sig <- re_sig[order(re_sig$diff,decreasing = TRUE), ]
+attach(re_sig)
+ggplot(re_sig) +
+  geom_segment(aes(x = lwr, xend = upr, y = tag, yend = tag), color = "black") +
+  geom_point(aes(x = diff, y = tag), color = "black", size = 3) +
+  labs(x = "difference", y = "Tag",title="male_difference")
+```
+
+
+# 只看女性
+```{r}
+df_female <- df[df["sex"]=="女",]
+name1 <- "舞蹈"
+name2 <- "动画"
+attach(df_female)
+fit = aov(follower~video_tag_combine)
+summary(fit)
+plot(TukeyHSD(fit))
+re = TukeyHSD(fit)
+re1 <- data.frame(re[["video_tag_combine"]])
+re_sig <- re1[re1$lwr*re1$upr>0 , ]
+re_sig$tag <- rownames(re_sig)
+re_sig <- re_sig[order(re_sig$diff,decreasing = TRUE), ]
+attach(re_sig)
+ggplot(re_sig) +
+  geom_segment(aes(x = lwr, xend = upr, y = tag, yend = tag), color = "black") +
+  geom_point(aes(x = diff, y = tag), color = "black", size = 3) +
+  labs(x = "difference", y = "Tag",title="female_difference")
+```
+```{r}
+df_female <- df[df["video_tag_combine"]==name1|df["video_tag_combine"]==name2,]
+fit <- aovp(follower ~ video_tag_combine ,perm="Prob")
+summary(fit)
+```
+
+
+```{r}
+library(car)
+attach(df_male)
+qqPlot(lm(follower~video_tag_combine),simulate=TRUE)
+bartlett.test(follower~video_tag_combine)
+```
+
+# 看头部大主播
+```{r}
+k <- 150
+quantiles <- quantile(df$follower, probs = 1-(k-1)/length(df$follower))
+value <- quantiles[length(quantiles)]
+value
+
+
+m <- 10000
+count <- sum(df$follower > m)
+count
+```
+
+
+# 看看前150（1020111）个 和后2100（10276）
+```{r}
+df_1st <- df[1:152,]
+df_2nd <- df[153:425,]
+df_3rd <- df[426:2271,]
+df_4th <- df[2272:6293,]
+df_5th <- df[6294:nrow(df),]
+
+
+x1 <- table(df$video_tag_combine)
+df_tag_count <-data.frame(tag=names(x1) , all_count=x1)
+x2 <- table(df_150$video_tag_combine)
+x3 <- table(df_2100$video_tag_combine)
+
+
+df_tag_count<-cbind(df_tag_count , x2)
+df_tag_count<-cbind(df_tag_count , x3)
+
+colnames(df_tag_count) <- c("tag","tag1","count","tag2","top_count","tag3","las_count")
+
+df_tag_count <- df_tag_count[c("tag","count","top_count","las_count")]
+df_tag_count$percent = df_tag_count$count/sum(df_tag_count$count)
+
+
+df_tag_count$top_percent = df_tag_count$top_count / sum(df_tag_count$top_count)
+df_tag_count$top_change = df_tag_count$top_percent - df_tag_count$percent
+df_tag_count$top_improve = df_tag_count$top_change / df_tag_count$percent
+
+df_tag_count$las_percent = df_tag_count$las_count / sum(df_tag_count$las_count)
+df_tag_count$las_change = df_tag_count$las_percent - df_tag_count$percent
+df_tag_count$las_improve = df_tag_count$las_change / df_tag_count$percent
+```
+
+尝试使用热力图来解释
+```{r}
+df1 <- df_tag_count[c("tag","percent")]
+df1$be <- "all"
+df2 <- df_tag_count[c("tag","top_percent")]
+colnames(df2) <- c("tag","percent")
+df2$be <- "top"
+
+df3 <- df_tag_count[c("tag","las_percent")]
+colnames(df3) <- c("tag","percent")
+df3$be <- "last"
+
+heat_df <- rbind(df1,df2)
+heat_df <- rbind(heat_df , df3)
+
+```
+
+
+```{r}
+
+
+p <- ggplot(heat_df,aes(x=be,y=tag)) #初始化，读入数据，设置x轴和y轴
+p <- p + geom_tile(aes(fill=percent))
+plot(p)
+```
+
+```{r}
+df_1 <- df[1:152,]
+df_2 <- df[153:425,]
+df_3 <- df[426:2271,]
+df_4 <- df[2272:6293,]
+df_5 <- df[6294:nrow(df),]
+
+get_3 <- function(name,df_1){
+  x1 <- table(df_1$video_tag_combine)
+  df_1_p <-data.frame(all_count=x1)
+  colnames(df_1_p) <- c("tag","count")
+  df_1_p$percent <- df_1_p$count/sum(df_1_p$count)
+  df_1_p$name <- name
+  return(df_1_p[c("tag","percent","count","name")])
+}
+
+df_1_3 <- get_3("100w+",df_1)
+df_2_3 <- get_3("50w-100w",df_2)
+df_3_3 <- get_3("10w-50w",df_3)
+df_4_3 <- get_3("1w-10w",df_4)
+df_5_3 <- get_3("1w-",df_5)
+
+heat_df <- rbind(df_5_3 ,df_4_3 ,df_3_3 ,df_2_3 ,df_1_3)
+heat_df$name <- factor(heat_df$name, levels = unique(heat_df$name))
+
+
+```
+
+```{r}
+sustc_cyan <- "#00A7D0"
+
+
+p <- ggplot(heat_df,aes(x=name,y=tag)) #初始化，读入数据，设置x轴和y轴
+p <- p + geom_tile(aes(fill=percent)) +theme(panel.grid = element_blank(),    # 去掉背景网格
+          plot.background = element_rect(fill = "transparent", color = NA))+xlab("不同粉丝量")+ylab("分区")
+plot(p)
+
+```
+```{r}
+# 选择数字变量
+heat_df1 <- heat_df
+numeric_cols <- sapply(heat_df1, is.numeric)
+df_numeric <- heat_df1[, numeric_cols]
+
+# 将数字变量保留两位小数
+df_numeric <- round(df_numeric, 2)
+
+# 将保留两位小数后的数字变量重新合并回原始数据框
+heat_df1[, numeric_cols] <- df_numeric
+p <- ggplot(heat_df1,aes(x=name,y=tag)) +
+  xlab("不同粉丝量") + theme_bw() +
+  theme(panel.grid.major = element_blank()) +
+  theme(legend.key = element_blank()) +
+  theme(axis.text.x = element_text(angle = 45,hjust = 1,vjust = 1)) +
+  theme(legend.position="top")+ 
+  geom_point(aes(color= percent),size=6) +
+  scale_color_gradient(low = "white",high = "blue") +
+  geom_text(aes(label=percent))+ylab("分区")
+p
+
+```
+

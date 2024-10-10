@@ -1,0 +1,349 @@
+# 关于时间的一些操作
+```{r}
+library(ggplot2)
+library(factoextra)
+library(cluster)
+library(dplyr)
+library(corrplot)
+library(randomForest) 
+library(gvlma)
+library(plyr)
+library(multcomp)
+library(car)
+library(ggplot2)
+library(grid)
+library(mclust)
+library(SuppDists) #提供rJohnson()函数
+df<- read.csv("C:/Users/WuuYue/Desktop/R/Proj/data_withr.csv")
+rownames(df) <- df$mid
+df$video_tag_combine <- factor(df$video_tag_combine)
+df$sex <- factor(df$sex)
+df <- df[order(df$time,decreasing = TRUE), ]
+
+#df <- df[df["sex"]!="保密",]
+```
+
+# 尝试解决 短视频，长视频这一说法
+```{r}
+m <- 60*60
+count <- sum(df$time > m)
+count
+
+```
+
+60*60 - 616
+120*60 - 337
+```{r}
+df <-df[617:nrow(df),]
+#df <- df[df["sex"]=="男",]
+#time <- log(df$time_ave20/60)
+time <- (df$time_ave20/60)
+
+```
+
+
+```{r}
+
+plot(density(time,bw=0.2, kernel="gaussian"))
+ggplot()
+
+
+density_estimate <- density(time,bw=0.2)
+df_density <- data.frame(x = density_estimate$x, density = density_estimate$y)
+
+ggplot() +
+
+  geom_line(data = df_density, aes(x = x, y = density, color = "Density Estimate")) +
+  xlab("minute") +
+  ylab("density") +
+  xlim(0, 100) +
+  scale_color_manual(values = c("Line 1" = "blue", "Line 2" = "blue", "Line 3" = "blue", "Density Estimate" = "black")) +
+  labs(color = "Legend")+
+  theme(legend.position = "topright")+
+  xlim(0,60)
+```
+
+```{r}
+set.seed(123)
+mc = Mclust(time)
+plot.Mclust(mc,what="BIC")
+mc
+```
+
+
+```{r}
+mc = Mclust(time,G=3)
+mc$parameters
+```
+
+# 画出图像
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# 给定的模型参数
+means <- c(3.961254,  9.627888, 27.827001)
+# male
+#means <- c(4.110005,  9.472245, 27.165619)
+# female
+#means <- c(4.28425, 10.44056, 28.40213)
+
+
+
+variances <- c(2.343445,  15.630848, 168.552973)
+# male
+#variances <- c(2.513915,  14.536873, 167.641519)
+# female
+#variances <- c( 2.654015,  17.580299, 158.004553)
+
+coe <- c(0.3371967 ,0.4516573, 0.2111460)
+#male
+#coe <- c(0.3094804, 0.4586068, 0.2319128)
+#female
+#coe <- c(0.3988949, 0.4619936, 0.1391115)
+
+# 创建一个包含概率密度函数值的数据框
+df <- data.frame(x = seq(0,100,length.out = 10000))
+
+# 计算每个高斯分布的概率密度函数值
+df <- df %>%
+  mutate(
+    y1 = dnorm(x, mean = means[1], sd = sqrt(variances[1])),
+    y2 = dnorm(x, mean = means[2], sd = sqrt(variances[2])),
+    y3 = dnorm(x, mean = means[3], sd = sqrt(variances[3]))
+  )
+df$y1 <- df$y1*coe[1]
+df$y2 <- df$y2*coe[2]
+df$y3 <- df$y3*coe[3]
+
+df$esti <-df$y1+df$y2+df$y3
+
+density_estimate <- density(time,bw=0.2)
+df_density <- data.frame(x = density_estimate$x, density = density_estimate$y)
+
+ggplot() +
+  geom_line(data = df, aes(x = x, y = y1, color = "Line 1")) +
+  geom_line(data = df, aes(x = x, y = y2, color = "Line 2")) +
+  geom_line(data = df, aes(x = x, y = y3, color = "Line 3")) +
+  geom_vline(xintercept = 6.168419, linetype = "dashed", color = "red") +  # 添加竖线
+  geom_vline(xintercept = 17.98943, linetype = "dashed", color = "red") +  # 添加竖线
+
+  # male
+  # female  19.8696  6.785359
+  geom_line(data = df_density, aes(x = x, y = density, color = "Density Estimate")) +
+  xlab("minute") +
+  ylab("density") +
+  xlim(0, 100) +
+  scale_color_manual(values = c("Line 1" = "blue", "Line 2" = "blue", "Line 3" = "blue", "Density Estimate" = "black")) +
+  labs(color = "Legend")+
+  theme(legend.position = "topright")+
+  xlim(0,60)
+
+
+
+```
+
+```{r}
+# 定义高斯分布的概率密度函数
+gaussian_pdf <- function(x, mean, variance) {
+  exp_val <- -(x - mean)^2 / (2 * variance)
+  coef <- 1 / sqrt(2 * pi * variance)
+  return(coef * exp(exp_val))
+}
+
+# 定义方程函数
+mean1=means[1]
+variance1=variances[1]
+coe1=coe[1] 
+
+mean2=means[2]
+variance2=variances[2]
+coe2=coe[2]
+
+equation <- function(x) {
+  f1 <- gaussian_pdf(x, mean1, variance1)*coe1
+  f2 <- gaussian_pdf(x, mean2, variance2)*coe2
+  return(abs(f1 - f2))
+}
+
+
+result <- optimize(equation, interval = c(0, 10))
+result
+```
+# 根据值进行分类
+```{r}
+
+```
+
+
+```{r}
+table(df$time_tag)
+df$time_tag <- factor(df$time_tag)
+
+```
+```{r}
+
+df <- df[df["sex"]=="男",]
+```
+
+# 分析不同的播放量是否会有所影响
+```{r}
+
+# 小提琴图
+attach(df)
+ggplot(df, aes(time_tag,log(follower)))+ 
+  geom_violin(aes(fill = time_tag),trim = FALSE)+
+  geom_boxplot(width = 0.2)+
+  theme_classic()+
+  labs(x='短-中-长视频类型',y='log(follower)')+
+  theme(panel.background=element_rect(fill="white",colour="black",size=0.25),
+        axis.line=element_line(colour="black",size=0.25),
+        axis.title=element_text(size=13,face="plain",color="black"),
+        axis.text = element_text(size=12,face="plain",color="black"),
+        legend.position="none"
+  )
+
+```
+# 显著性检验
+```{r}
+attach(df)
+fit = aov(follower~time_tag)
+summary(fit)
+plot(TukeyHSD(fit))
+re = TukeyHSD(fit)
+re1 <- data.frame(re[["time_tag"]])
+re_sig <- re1[re1$lwr*re1$upr>0 , ]
+re_sig$tag <- rownames(re_sig)
+re_sig <- re_sig[order(re_sig$diff,decreasing = TRUE), ]
+attach(re_sig)
+ggplot(re_sig) +
+  geom_segment(aes(x = lwr, xend = upr, y = tag, yend = tag), color = "black") +
+  geom_point(aes(x = diff, y = tag), color = "black", size = 3) +
+  labs(x = "difference", y = "Tag",title="differnce")
+
+```
+发现有显著性差异，因此我们更推荐做中视频,其次是短视频，其次是长视频
+
+做一些方差齐性分析等等
+
+
+尝试使用重采样来解决~
+```{r}
+library(lmPerm)
+library(multcomp)
+df1 <- df[df["time_tag"]!="med",]
+fit <- aovp(follower ~ time_tag , data=df1,perm="Prob")
+summary(fit)
+
+```
+
+```{r}
+
+```
+
+
+做一个不同视频种类下，不同tag的heat map
+```{r}
+df1 <-df[df['time_tag']=="short",]
+df2 <-df[df['time_tag']=="mid",]
+df3 <-df[df['time_tag']=="long",]
+
+df1 <- df1[c("follower","video_tag_combine","time_tag")]
+df2 <- df2[c("follower","video_tag_combine","time_tag")]
+df3 <- df3[c("follower","video_tag_combine","time_tag")]
+
+df_all <- rbind(df1,df2,df3)
+
+```
+
+
+
+```{r}
+x1 <- table(df1$video_tag_combine)
+df_tag_count <-data.frame(tag=names(x1) , all_count=x1)
+x2 <- table(df2$video_tag_combine)
+x3 <- table(df3$video_tag_combine)
+
+
+df_tag_count<-cbind(df_tag_count , x2)
+df_tag_count<-cbind(df_tag_count , x3)
+
+colnames(df_tag_count) <- c("tag","tag1","short_count","tag2","mid_count","tag3","long_count")
+
+df_tag_count <- df_tag_count[c("tag","short_count","mid_count","long_count")]
+df_tag_count$short_percent = df_tag_count$short_count/sum(df_tag_count$short_count)
+df_tag_count$mid_percent = df_tag_count$mid_count/sum(df_tag_count$mid_count)
+df_tag_count$long_percent = df_tag_count$long_count/sum(df_tag_count$long_count)
+
+
+
+```
+
+```{r}
+df_short <- df_tag_count[c("tag","short_percent")]
+df_short$be <- "short"
+colnames(df_short) <- c("tag","percent","be")
+
+df_mid <- df_tag_count[c("tag","mid_percent")]
+colnames(df_mid) <- c("tag","percent")
+df_mid$be <- "mid"
+colnames(df_mid) <- c("tag","percent","be")
+
+
+df_long <- df_tag_count[c("tag","long_percent")]
+colnames(df_long) <- c("tag","long_percent")
+df_long$be <- "long"
+colnames(df_long) <- c("tag","percent","be")
+
+
+heat_df <- rbind(df_short,df_mid,df_long)
+
+
+```
+
+```{r}
+# 选择数字变量
+numeric_cols <- sapply(df, is.numeric)
+df_numeric <- df[, numeric_cols]
+
+# 将数字变量保留两位小数
+df_numeric <- round(df_numeric, 2)
+
+# 将保留两位小数后的数字变量重新合并回原始数据框
+df[, numeric_cols] <- df_numeric
+
+heat_df1 <- round(heat_df,2)
+p <- ggplot(heat_df1,aes(x=be,y=tag)) #初始化，读入数据，设置x轴和y轴
+p <- p + geom_tile(aes(fill=percent))+
+  geom_tile(aes(fill = percent)) +
+    theme(panel.grid = element_blank(),    # 去掉背景网格
+          plot.background = element_rect(fill = "transparent", color = NA))+  # 设置透明背景
+  xlab("长-中-短视频")+ylab("分区")  # 修改x轴标签
+plot(p)
+
+```
+```{r}
+# 选择数字变量
+heat_df1 <- heat_df
+numeric_cols <- sapply(heat_df1, is.numeric)
+df_numeric <- heat_df1[, numeric_cols]
+
+# 将数字变量保留两位小数
+df_numeric <- round(df_numeric, 2)
+
+# 将保留两位小数后的数字变量重新合并回原始数据框
+heat_df1[, numeric_cols] <- df_numeric
+p <- ggplot(heat_df1,aes(x=be,y=tag)) +
+  xlab("samples") + theme_bw() +
+  theme(panel.grid.major = element_blank()) +
+  theme(legend.key = element_blank()) +
+  theme(axis.text.x = element_text(angle = 45,hjust = 1,vjust = 1)) +
+  theme(legend.position="top")+ 
+  geom_point(aes(color= percent),size=6) +
+  scale_color_gradient(low = "white",high = "blue") +
+  geom_text(aes(label=percent))
+p
+
+```
+
